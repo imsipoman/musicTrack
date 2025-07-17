@@ -1,0 +1,17 @@
+{
+    "name": [string], //歌曲名
+    "iamgePath": [string], //图片路径
+    "musicPath": [string], //音乐路径
+    "difficulty": [number], //难度
+    "BPM": [number], //BPM
+    "offset": [number], //首拍偏移量
+    "track":{
+        "note":{ //音符编号
+            "time": [number], //音符诞生时间
+            "type": [string], //类型 短节奏：1 长节奏：2 
+            "color":[number],//四种颜色，增加游戏层次
+            "begin": [number], //开始时间 单位：ms
+            "end": [number], //结束时间 单位：ms
+        }
+    }
+}

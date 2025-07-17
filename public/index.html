@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pindot拼好组内部乐谱生成工具</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdn.staticfile.org/font-awesome/5.15.3/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/6.6.3/wavesurfer.min.js"></script>
+</head>
+<body>
+  <div class="game-background"></div>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <i class="fas fa-music"></i>
+      </div>
+      <h1>Pindot拼好组内部乐谱生成工具</h1>
+      <div class="header-decoration"></div>
+    </header>
+
+    <main>
+      <section class="upload-section game-panel">
+        <div class="panel-header">
+          <i class="fas fa-upload"></i>
+          <h2>1. 上传音乐</h2>
+        </div>
+        <div class="panel-content">
+          <div class="settings-container">
+            <div class="setting-group">
+              <label for="bpmInput">BPM:</label>
+              <input type="number" id="bpmInput" min="60" max="300" value="120" class="input-field">
+            </div>
+            <div class="setting-group">
+              <label for="offsetInput">偏移量 (ms):</label>
+              <input type="number" id="offsetInput" value="0" class="input-field">
+            </div>
+            <div class="setting-group">
+              <label for="difficultyInput">难度 (1-10):</label>
+              <input type="number" id="difficultyInput" min="1" max="10" value="3" class="input-field">
+            </div>
+          </div>
+          
+          <div class="upload-container">
+            <input type="file" id="musicFile" accept="audio/*" class="file-input">
+            <button id="uploadBtn" class="game-btn"><i class="fas fa-cloud-upload-alt"></i> 上传音乐</button>
+          </div>
+          <div class="progress-container" id="uploadProgressContainer" style="display: none;">
+            <div class="progress-label">上传进度: <span id="uploadProgressText">0%</span></div>
+            <div class="progress-bar-outer">
+              <div class="progress-bar-inner" id="uploadProgressBar"></div>
+            </div>
+          </div>
+          <div class="upload-info" id="uploadInfo"></div>
+        </div>
+      </section>
+
+      <section class="combined-section game-panel">
+        <div class="panel-header">
+          <i class="fas fa-wave-square"></i>
+          <h2>2. 频谱预览</h2>
+        </div>
+        <div class="panel-content">
+          <div id="waveform" class="waveform-container"></div>
+          <div class="playback-controls">
+            <button id="playBtn" class="game-btn" disabled><i class="fas fa-play"></i> 播放</button>
+            <button id="pauseBtn" class="game-btn" disabled><i class="fas fa-pause"></i> 暂停</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="editor-section game-panel">
+        <div class="panel-header">
+          <i class="fas fa-music"></i>
+          <h2>3. 谱面编辑</h2>
+        </div>
+        <div class="panel-content">
+          <div class="editor-controls">
+            <div class="setting-group">
+              <label for="beatInput">节拍分割:</label>
+              <select id="beatInput" class="input-field">
+                <option value="4">4分音符</option>
+                <option value="8">8分音符</option>
+                <option value="16">16分音符</option>
+                <option value="32">32分音符</option>
+              </select>
+            </div>
+            <button id="generateGridBtn" class="game-btn"><i class="fas fa-th"></i> 生成格子</button>
+            <button id="clearAllBtn" class="game-btn"><i class="fas fa-trash-alt"></i> 清空所有</button>
+          </div>
+          
+          <div id="trackEditor" class="track-editor">
+            <div class="track-container">
+              <div class="track-label" data-color="0">音轨1</div>
+              <div class="track" id="track0"></div>
+            </div>
+            <div class="track-container">
+              <div class="track-label" data-color="1">音轨2</div>
+              <div class="track" id="track1"></div>
+            </div>
+            <div class="track-container">
+              <div class="track-label" data-color="2">音轨3</div>
+              <div class="track" id="track2"></div>
+            </div>
+            <div class="track-container">
+              <div class="track-label" data-color="3">音轨4</div>
+              <div class="track" id="track3"></div>
+            </div>
+            <div id="editorTimeline" class="editor-timeline"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="action-section">
+        <button id="saveBtn" class="game-btn success-btn" disabled><i class="fas fa-save"></i> 保存谱面</button>
+        <a id="downloadBtn" class="game-btn download-btn" download style="display: none;"><i class="fas fa-download"></i> 下载JSON文件</a>
+      </section>
+    </main>
+
+    <div id="jsonPreview" class="json-preview game-panel">
+      <div class="panel-header">
+        <i class="fas fa-code"></i>
+        <h3>JSON 预览</h3>
+      </div>
+      <div class="panel-content">
+        <pre id="jsonContent"></pre>
+      </div>
+    </div>
+    
+    <footer>
+      <p>© 2023 Pindot拼好组 - 音游谱面制作工具</p>
+    </footer>
+  </div>
+  
+  <script src="app.js"></script>
+</body>
+</html> 
