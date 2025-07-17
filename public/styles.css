@@ -552,10 +552,36 @@ footer {
   bottom: 0;
   width: 2px;
   background-color: var(--accent);
-  z-index: 5;
-  left: 0;
+  z-index: 10; /* 提高z-index确保显示在最上层 */
   pointer-events: none;
-  box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 8px rgba(255, 64, 129, 0.8);
+}
+
+/* 添加箭头样式 */
+.editor-timeline::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 10px solid var(--accent);
+  filter: drop-shadow(0 0 5px rgba(255, 64, 129, 0.8));
+}
+
+.editor-timeline::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 10px solid var(--accent);
+  filter: drop-shadow(0 0 5px rgba(255, 64, 129, 0.8));
 }
 
 /* 音符编辑器适配移动设备 */
@@ -575,4 +601,140 @@ footer {
     flex-direction: column;
     align-items: stretch;
   }
+} 
+
+.small-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--secondary-dark);
+  color: var(--text);
+  border: none;
+  padding: 3px 8px;
+  margin-left: 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+  font-family: 'Noto Sans SC', sans-serif;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  font-weight: normal;
+}
+
+.small-btn:hover {
+  background-color: var(--secondary);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.3);
+}
+
+.small-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+} 
+
+/* 速度控制按钮样式 */
+.speed-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.speed-controls label {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.speed-btn {
+  background-color: var(--surface-light);
+  color: var(--text-secondary);
+  border: 1px solid var(--primary-dark);
+  border-radius: 20px;
+  padding: 5px 15px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.speed-btn:hover {
+  background-color: var(--primary-dark);
+  color: var(--text);
+}
+
+.speed-btn.active {
+  background-color: var(--primary);
+  color: var(--text);
+  box-shadow: 0 0 8px rgba(98, 0, 234, 0.6);
+}
+
+@media (max-width: 768px) {
+  .speed-controls {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+} 
+
+/* 键盘快捷键提示样式 */
+.keyboard-tips {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: var(--surface);
+  border-radius: 5px;
+  border-left: 4px solid var(--secondary);
+  font-size: 14px;
+}
+
+.tips-header {
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: var(--secondary);
+  font-family: 'Orbitron', 'Noto Sans SC', sans-serif;
+}
+
+.tips-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+}
+
+.tips-content div {
+  flex: 0 0 auto;
+}
+
+.key {
+  display: inline-block;
+  padding: 2px 8px;
+  background-color: var(--primary-dark);
+  border-radius: 4px;
+  margin-right: 5px;
+  font-family: 'Orbitron', monospace;
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .tips-content {
+    flex-direction: column;
+    gap: 5px;
+  }
+} 
+
+/* JSON通知样式 */
+.json-notification {
+  margin-top: 15px;
+  padding: 10px 15px;
+  background-color: var(--secondary-dark);
+  color: white;
+  border-radius: 5px;
+  text-align: center;
+  animation: fadeInOut 3s ease forwards;
+  font-weight: bold;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateY(-10px); }
+  10% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
 } 

@@ -17,6 +17,7 @@
   "license": "ISC",
   "dependencies": {
     "body-parser": "^1.19.0",
+    "bpm-detective": "^2.0.5",
     "cors": "^2.8.5",
     "express": "^4.17.1",
     "meyda": "^5.6.1",

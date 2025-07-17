@@ -20,10 +20,26 @@ document.addEventListener('DOMContentLoaded', function() {
   const downloadBtn = document.getElementById('downloadBtn');
   const jsonContent = document.getElementById('jsonContent');
   
+  // 速度控制按钮
+  const speed05Btn = document.getElementById('speed05Btn');
+  const speed10Btn = document.getElementById('speed10Btn');
+  
   // 进度条元素
   const uploadProgressContainer = document.getElementById('uploadProgressContainer');
   const uploadProgressBar = document.getElementById('uploadProgressBar');
   const uploadProgressText = document.getElementById('uploadProgressText');
+  
+  // BPM检测相关元素
+  const detectBpmBtn = document.createElement('button');
+  detectBpmBtn.id = 'detectBpmBtn';
+  detectBpmBtn.className = 'btn btn-info';
+  detectBpmBtn.textContent = '检测BPM';
+  detectBpmBtn.disabled = true;
+  
+  // 添加BPM检测按钮到DOM中
+  const bpmInputContainer = bpmInput.parentNode;
+  bpmInputContainer.appendChild(document.createTextNode(' '));
+  bpmInputContainer.appendChild(detectBpmBtn);
   
   // 谱面编辑器元素
   const beatInput = document.getElementById('beatInput');
@@ -38,6 +54,19 @@ document.addEventListener('DOMContentLoaded', function() {
   ];
   const editorTimeline = document.getElementById('editorTimeline');
   
+  // 添加生成JSON按钮
+  const generateJsonBtn = document.createElement('button');
+  generateJsonBtn.id = 'generateJsonBtn';
+  generateJsonBtn.className = 'game-btn';
+  generateJsonBtn.innerHTML = '<i class="fas fa-code"></i> 生成谱面JSON';
+  generateJsonBtn.disabled = true;
+  
+  // 将生成JSON按钮添加到操作区域
+  const actionSection = document.querySelector('.action-section');
+  if (actionSection) {
+    actionSection.insertBefore(generateJsonBtn, saveBtn);
+  }
+  
   // 状态变量
   let wavesurfer;
   let uploadedFile = null;
@@ -49,16 +78,30 @@ document.addEventListener('DOMContentLoaded', function() {
   let notesCounter = 0; // 音符计数器
   let lastSelectedTrack = null; // 最近选中的轨道
   let lastSelectedTime = null; // 最近选中的时间
+  let playbackRate = 1.0; // 播放速度倍率，默认为1.0
+  let keyboardEnabled = false; // 键盘控制是否启用
   
   // 初始化Web Audio API上下文
   function initAudioContext() {
     try {
-      window.AudioContext = window.AudioContext || window.webkitAudioContext;
-      audioContext = new AudioContext();
-      debugLog('AudioContext初始化成功');
+      // 确保使用正确的构造函数名称和延迟初始化
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      
+      if (!AudioContextClass) {
+        debugLog('无法找到AudioContext构造函数');
+        return false;
+      }
+      
+      // 只有在需要时才创建AudioContext
+      if (!audioContext) {
+        audioContext = new AudioContextClass();
+        debugLog('AudioContext初始化成功');
+      }
+      
+      return true;
     } catch(e) {
       debugLog('AudioContext初始化失败:', e);
-      alert('您的浏览器不支持Web Audio API');
+      return false;
     }
   }
 
@@ -84,9 +127,19 @@ document.addEventListener('DOMContentLoaded', function() {
       debugLog('音频加载完成');
       playBtn.disabled = false;
       pauseBtn.disabled = false;
+      detectBpmBtn.disabled = false; // 启用BPM检测按钮
+      
+      // 设置初始播放速度
+      setPlaybackRate(playbackRate);
       
       // 初始化空白谱面
       initEmptyScore();
+      
+      // 启用键盘控制
+      keyboardEnabled = true;
+      
+      // 启用生成JSON按钮
+      generateJsonBtn.disabled = false;
     });
 
     wavesurfer.on('finish', function() {
@@ -127,8 +180,8 @@ document.addEventListener('DOMContentLoaded', function() {
       track: {}
     };
     
-    // 显示JSON预览
-    jsonContent.textContent = JSON.stringify(scoreData, null, 2);
+    // 不再实时显示JSON预览
+    jsonContent.textContent = "点击「生成谱面JSON」按钮来生成谱面数据";
     
     // 启用保存按钮
     saveBtn.disabled = false;
@@ -139,6 +192,155 @@ document.addEventListener('DOMContentLoaded', function() {
     notesCounter = 0;
     lastSelectedTrack = null;
     lastSelectedTime = null;
+  }
+
+  // 使用Web Audio API和bpm-detective库分析音频文件并检测BPM
+  function detectBPM(audioFile) {
+    return new Promise((resolve, reject) => {
+      try {
+        if (!initAudioContext()) {
+          return reject(new Error('无法初始化音频上下文'));
+        }
+        
+        debugLog('开始读取音频文件数据');
+        const reader = new FileReader();
+        
+        reader.onload = async function(e) {
+          try {
+            const fileBuffer = e.target.result;
+            
+            debugLog('解码音频数据...');
+            audioContext.decodeAudioData(fileBuffer, 
+              (audioBuffer) => {
+                try {
+                  debugLog('音频解码成功，开始分析BPM...');
+                  
+                  // 获取音频原始数据
+                  const channelData = audioBuffer.getChannelData(0); // 使用第一个声道的数据
+                  
+                  // 验证音频参数
+                  const sampleRate = audioBuffer.sampleRate;
+                  const numberOfChannels = audioBuffer.numberOfChannels;
+                  const duration = audioBuffer.duration;
+                  
+                  debugLog('音频信息:', {
+                    sampleRate,
+                    numberOfChannels,
+                    duration,
+                    dataLength: channelData.length
+                  });
+                  
+                  // 检查参数是否有效
+                  if (!isFinite(sampleRate) || sampleRate <= 0) {
+                    throw new Error('无效的采样率: ' + sampleRate);
+                  }
+                  
+                  if (!channelData || channelData.length === 0) {
+                    throw new Error('无效的音频数据');
+                  }
+                  
+                  // 使用try-catch单独包装BPM检测调用
+                  try {
+                    // 使用bpm-detective库检测BPM
+                    const bpm = window.DetectBPM(channelData, {
+                      sampleRate: audioBuffer.sampleRate
+                    });
+                    debugLog('BPM检测结果:', bpm);
+                    resolve(bpm);
+                  } catch (bpmError) {
+                    debugLog('DetectBPM调用失败:', bpmError);
+                    
+                    // 尝试直接分析，避免库内部的OfflineAudioContext创建
+                    const bpmRange = estimateBPMRange(channelData, sampleRate);
+                    debugLog('使用备用方法估算BPM范围:', bpmRange);
+                    resolve(bpmRange.avgBPM);
+                  }
+                } catch (analyzeError) {
+                  debugLog('BPM分析失败:', analyzeError);
+                  reject(analyzeError);
+                }
+              },
+              (decodeError) => {
+                debugLog('音频解码失败:', decodeError);
+                reject(decodeError);
+              }
+            );
+          } catch (processError) {
+            debugLog('处理音频文件失败:', processError);
+            reject(processError);
+          }
+        };
+        
+        reader.onerror = function(readerError) {
+          debugLog('读取文件失败:', readerError);
+          reject(readerError);
+        };
+        
+        reader.readAsArrayBuffer(audioFile);
+      } catch (error) {
+        debugLog('检测BPM过程出错:', error);
+        reject(error);
+      }
+    });
+  }
+  
+  // 简单的BPM估算函数，当主要库方法失败时作为备选
+  function estimateBPMRange(audioData, sampleRate) {
+    debugLog('使用简单算法估算BPM...');
+    
+    // 1. 提取峰值
+    const threshold = 0.8;
+    const peaks = [];
+    
+    // 简单地找出超过阈值的峰值
+    for (let i = 0; i < audioData.length; i++) {
+      if (Math.abs(audioData[i]) > threshold) {
+        peaks.push(i);
+        // 跳过一小段时间以避免连续峰值
+        i += sampleRate / 20; // 约50ms
+      }
+    }
+    
+    debugLog('找到峰值数量:', peaks.length);
+    
+    if (peaks.length < 10) {
+      // 如果峰值太少，返回默认值
+      return { minBPM: 100, maxBPM: 140, avgBPM: 120 };
+    }
+    
+    // 2. 计算间隔
+    const intervals = [];
+    for (let i = 0; i < peaks.length - 1; i++) {
+      const interval = peaks[i + 1] - peaks[i];
+      if (interval > 0) {
+        intervals.push(interval);
+      }
+    }
+    
+    // 3. 将间隔转换为BPM
+    const bpmValues = intervals.map(interval => {
+      const bpm = 60 / (interval / sampleRate);
+      
+      // 调整BPM到通常的范围(60-200)
+      let adjustedBPM = bpm;
+      while (adjustedBPM < 60) adjustedBPM *= 2;
+      while (adjustedBPM > 200) adjustedBPM /= 2;
+      
+      return adjustedBPM;
+    });
+    
+    // 4. 获取BPM范围和平均值
+    const validBPMs = bpmValues.filter(bpm => !isNaN(bpm) && isFinite(bpm));
+    
+    if (validBPMs.length === 0) {
+      return { minBPM: 100, maxBPM: 140, avgBPM: 120 };
+    }
+    
+    const minBPM = Math.min(...validBPMs);
+    const maxBPM = Math.max(...validBPMs);
+    const avgBPM = Math.round(validBPMs.reduce((sum, bpm) => sum + bpm, 0) / validBPMs.length);
+    
+    return { minBPM, maxBPM, avgBPM };
   }
 
   // 上传音乐文件
@@ -180,6 +382,7 @@ document.addEventListener('DOMContentLoaded', function() {
           
           if (response.success && response.file) {
             uploadedFile = response.file;
+            
             uploadInfo.innerHTML = `
               <strong>上传成功!</strong><br>
               文件名: ${uploadedFile.originalname}<br>
@@ -192,6 +395,41 @@ document.addEventListener('DOMContentLoaded', function() {
             const audioUrl = `/uploads/${uploadedFile.filename}`;
             debugLog('加载音频URL:', audioUrl);
             wavesurfer.load(audioUrl);
+            
+            // 尝试自动检测BPM
+            detectBPM(file)
+              .then(bpm => {
+                const detectedBpm = Math.round(bpm);
+                debugLog('BPM检测结果:', detectedBpm);
+                bpmInput.value = detectedBpm;
+                uploadInfo.innerHTML += `<br><span style="color: green;">检测到BPM: ${detectedBpm}</span>`;
+                
+                // 更新BPM信息显示和推荐节拍分割
+                updateBpmInfo();
+                
+                // 自动推荐最佳节拍分割
+                const recommendedBeatType = getRecommendedBeatType(detectedBpm);
+                debugLog(`推荐的节拍分割: ${recommendedBeatType}分音符`);
+                
+                // 显示推荐提示
+                uploadInfo.innerHTML += `<br><span style="color: #03dac6;">推荐节拍分割: ${recommendedBeatType}分音符 
+                  <button id="applyRecommendationBtn" class="small-btn">应用推荐</button></span>`;
+                
+                // 添加点击事件
+                setTimeout(() => {
+                  const applyBtn = document.getElementById('applyRecommendationBtn');
+                  if (applyBtn) {
+                    applyBtn.addEventListener('click', function() {
+                      beatInput.value = recommendedBeatType;
+                      updateBpmInfo();
+                      uploadInfo.innerHTML += `<br><span style="color: green;">已应用推荐的节拍分割: ${recommendedBeatType}分音符</span>`;
+                    });
+                  }
+                }, 100); // 使用setTimeout确保DOM已更新
+              })
+              .catch(error => {
+                debugLog('自动BPM检测失败:', error);
+              });
             
             // 2秒后隐藏进度条
             setTimeout(() => {
@@ -229,8 +467,98 @@ document.addEventListener('DOMContentLoaded', function() {
     xhr.send(formData);
   });
 
+  // 手动检测BPM
+  detectBpmBtn.addEventListener('click', function() {
+    if (!uploadedFile || !musicFileInput.files.length) {
+      uploadInfo.innerHTML += '<br><span style="color: red;">请先上传音频文件</span>';
+      return;
+    }
+    
+    const file = musicFileInput.files[0];
+    
+    // 禁用按钮，显示检测中状态
+    detectBpmBtn.disabled = true;
+    detectBpmBtn.textContent = '检测中...';
+    uploadInfo.innerHTML += '<br><span style="color: blue;">BPM检测中，请稍等...</span>';
+    
+    // 使用Web Audio API检测BPM
+    detectBPM(file)
+      .then(bpm => {
+        detectBpmBtn.textContent = '检测BPM';
+        detectBpmBtn.disabled = false;
+        
+        const detectedBpm = Math.round(bpm);
+        debugLog('BPM检测结果:', detectedBpm);
+        
+        // 更新BPM输入框
+        bpmInput.value = detectedBpm;
+        
+        // 显示检测结果
+        uploadInfo.innerHTML += `<br><span style="color: green;">BPM检测完成: ${detectedBpm}</span>`;
+        
+        // 更新BPM信息
+        updateBpmInfo();
+        
+        // 自动推荐最佳节拍分割
+        const recommendedBeatType = getRecommendedBeatType(detectedBpm);
+        debugLog(`推荐的节拍分割: ${recommendedBeatType}分音符`);
+        
+        // 显示推荐提示
+        uploadInfo.innerHTML += `<br><span style="color: #03dac6;">推荐节拍分割: ${recommendedBeatType}分音符 
+          <button id="applyRecommendationBtn" class="small-btn">应用推荐</button></span>`;
+        
+        // 添加点击事件
+        setTimeout(() => {
+          const applyBtn = document.getElementById('applyRecommendationBtn');
+          if (applyBtn) {
+            applyBtn.addEventListener('click', function() {
+              beatInput.value = recommendedBeatType;
+              updateBpmInfo();
+              uploadInfo.innerHTML += `<br><span style="color: green;">已应用推荐的节拍分割: ${recommendedBeatType}分音符</span>`;
+            });
+          }
+        }, 100); // 使用setTimeout确保DOM已更新
+      })
+      .catch(error => {
+        debugLog('BPM检测请求错误:', error);
+        detectBpmBtn.textContent = '检测BPM';
+        detectBpmBtn.disabled = false;
+        uploadInfo.innerHTML += '<br><span style="color: red;">BPM检测失败，错误原因: ' + error.message + '</span>';
+      });
+  });
+
+  // 设置播放速度函数
+  function setPlaybackRate(rate) {
+    if (!wavesurfer) return;
+    
+    // 更新播放速度状态
+    playbackRate = rate;
+    
+    // 设置音频播放速度
+    wavesurfer.setPlaybackRate(rate);
+    
+    // 更新UI
+    speed05Btn.classList.toggle('active', rate === 0.5);
+    speed10Btn.classList.toggle('active', rate === 1.0);
+    
+    debugLog(`播放速度设置为: ${rate}x`);
+  }
+  
+  // 0.5倍速按钮点击事件
+  speed05Btn.addEventListener('click', function() {
+    setPlaybackRate(0.5);
+  });
+  
+  // 1.0倍速按钮点击事件
+  speed10Btn.addEventListener('click', function() {
+    setPlaybackRate(1.0);
+  });
+
   // 播放控制
   playBtn.addEventListener('click', function() {
+    // 更新BPM信息显示
+    updateBpmInfo();
+    
     wavesurfer.play();
     playBtn.disabled = true;
     pauseBtn.disabled = false;
@@ -238,6 +566,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 开始更新时间线
     updateEditorTimeline();
+    
+    debugLog(`播放开始，使用BPM: ${bpmInput.value}，速度: ${playbackRate}x`);
   });
 
   pauseBtn.addEventListener('click', function() {
@@ -246,48 +576,217 @@ document.addEventListener('DOMContentLoaded', function() {
     pauseBtn.disabled = true;
     isPlaying = false;
   });
+  
+  // 获取当前时间线位置对应的格子
+  function getCurrentGridAtTimeline() {
+    if (!isPlaying || !wavesurfer) return null;
+    
+    // 获取当前播放时间
+    const currentTime = wavesurfer.getCurrentTime() * 1000; // 转换为毫秒
+    
+    // 获取BPM和节拍信息
+    const bpm = parseInt(bpmInput.value) || 120;
+    const beatType = parseInt(beatInput.value) || 4;
+    
+    // 计算格子时长
+    const gridDuration = (60 / bpm) * 1000 / (beatType / 4);
+    
+    // 计算当前时间对应的格子索引
+    const gridIndex = Math.floor(currentTime / gridDuration);
+    
+    return gridIndex;
+  }
+  
+  // 在指定轨道和当前时间线位置添加/删除音符
+  function toggleNoteAtTimeline(trackIndex, shouldRemove = false) {
+    if (!isPlaying || !wavesurfer || trackIndex < 0 || trackIndex > 3) return;
+    
+    // 获取当前格子索引
+    const gridIndex = getCurrentGridAtTimeline();
+    if (gridIndex === null) return;
+    
+    // 获取对应轨道
+    const track = tracks[trackIndex];
+    if (!track) return;
+    
+    // 查找对应的格子元素
+    const grids = Array.from(track.children);
+    const targetGrid = grids.find(grid => parseInt(grid.dataset.index) === gridIndex);
+    
+    if (targetGrid) {
+      // 高亮显示当前操作的格子
+      const oldBackgroundColor = targetGrid.style.backgroundColor;
+      targetGrid.style.backgroundColor = shouldRemove ? '#ff6b6b' : '#6bff6b';
+      
+      // 延迟恢复原来的颜色，提供视觉反馈
+      setTimeout(() => {
+        targetGrid.style.backgroundColor = oldBackgroundColor;
+      }, 200);
+      
+      // 获取格子的时间和轨道信息
+      const time = parseInt(targetGrid.dataset.time);
+      
+      // 如果是删除操作且格子已激活，或者是添加操作且格子未激活，则切换状态
+      if ((shouldRemove && targetGrid.classList.contains('active')) || 
+          (!shouldRemove && !targetGrid.classList.contains('active'))) {
+        // 使用已有的toggleGridSelection函数来处理添加/删除音符
+        toggleGridSelection(targetGrid, trackIndex, gridIndex, time);
+        
+        debugLog(`${shouldRemove ? '删除' : '添加'}音符: 轨道=${trackIndex+1}, 索引=${gridIndex}, 时间=${time}ms`);
+      }
+    } else {
+      debugLog(`未找到轨道${trackIndex+1}上索引为${gridIndex}的格子`);
+    }
+  }
+  
+  // 添加键盘事件监听
+  document.addEventListener('keydown', function(event) {
+    // 只有在键盘控制启用且音频正在播放时才处理键盘事件
+    if (!keyboardEnabled || !isPlaying) return;
+    
+    // 检查是否按下了Shift键
+    const isShiftPressed = event.shiftKey;
+    
+    // 根据按键触发相应的轨道操作
+    switch(event.key.toLowerCase()) {
+      case 'q': // 轨道1
+        toggleNoteAtTimeline(0, isShiftPressed);
+        break;
+      case 'w': // 轨道2
+        toggleNoteAtTimeline(1, isShiftPressed);
+        break;
+      case 'e': // 轨道3
+        toggleNoteAtTimeline(2, isShiftPressed);
+        break;
+      case 'r': // 轨道4
+        toggleNoteAtTimeline(3, isShiftPressed);
+        break;
+    }
+  });
 
   // 更新编辑器时间线位置
   function updateEditorTimeline() {
     if (!wavesurfer || !isPlaying) return;
-    
-    const currentTime = wavesurfer.getCurrentTime() * 1000; // 转换为毫秒
-    const totalTime = wavesurfer.getDuration() * 1000; // 转换为毫秒
-    
-    // 计算当前时间对应的格子位置
+
+    const currentTime = wavesurfer.getCurrentTime();
     const bpm = parseInt(bpmInput.value) || 120;
     const beatType = parseInt(beatInput.value) || 4;
-    const gridDuration = (60 / bpm) * 1000 / (beatType / 4);
     
-    // 获取第一个轨道的信息
-    if (tracks[0] && tracks[0].children.length > 0) {
-      const gridWidth = 50; // 格子宽度，与CSS中保持一致
-      
-      // 计算时间线位置（基于格子数乘以格子宽度）
-      const gridPosition = Math.floor(currentTime / gridDuration);
-      const position = gridPosition * gridWidth;
-      
-      // 设置时间线位置
-      editorTimeline.style.left = position + 'px';
-      
-      // 自动滚动确保时间线可见
-      const visibleWidth = tracks[0].clientWidth;
-      if (position > tracks[0].scrollLeft + visibleWidth * 0.7) {
-        tracks.forEach(track => {
-          track.scrollLeft = position - visibleWidth * 0.3;
-        });
-      } else if (position < tracks[0].scrollLeft + visibleWidth * 0.3 && position > visibleWidth * 0.3) {
-        tracks.forEach(track => {
-          track.scrollLeft = Math.max(0, position - visibleWidth * 0.3);
-        });
-      }
-    }
+    // 1. 计算每个格子的持续时间（秒）
+    const singleBeatDuration = 60 / bpm;
+    const gridDuration = singleBeatDuration / (beatType / 4);
+
+    // 2. 计算当前时间应该在哪个格子上
+    const gridIndex = currentTime / gridDuration;
+
+    // 3. 计算时间线在屏幕上的像素位置
+    // 每个格子的宽度固定为50px
+    const gridWidth = 50; 
+    const timelinePosition = gridIndex * gridWidth;
     
-    // 如果仍在播放，继续更新
+    // 4. 获取容器信息
+    const trackContainer = tracks[0]; // 以第一个轨道容器为基准
+    if (!trackContainer) return;
+    
+    const containerWidth = trackContainer.clientWidth;
+    const centerPosition = containerWidth / 2;
+    
+    // 5. 固定进度条在中心位置
+    // 不再更新进度条的left属性，而是将其固定在中央
+    editorTimeline.style.left = `${centerPosition}px`;
+    
+    // 6. 计算轨道应该滚动的位置
+    // 目标：让轨道内容随着播放向左滚动，使得当前播放位置始终在中心
+    const targetScrollLeft = timelinePosition - centerPosition;
+    
+    // 确保滚动位置不为负
+    const finalScrollLeft = Math.max(0, targetScrollLeft);
+    
+    // 7. 应用滚动 - 直接设置滚动位置，确保与播放位置同步
+    // 根据播放速度调整滚动速度，保持与音频同步
+    applyScrollToTracks(finalScrollLeft);
+
+    // 8. 持续更新
     if (isPlaying) {
       requestAnimationFrame(updateEditorTimeline);
     }
   }
+  
+  // 将滚动应用到所有轨道
+  function applyScrollToTracks(scrollLeft) {
+    tracks.forEach(track => {
+      track.scrollLeft = scrollLeft;
+    });
+  }
+
+  // 显示BPM相关信息
+  function updateBpmInfo() {
+    const bpm = parseInt(bpmInput.value) || 120;
+    const beatType = parseInt(beatInput.value) || 4;
+    
+    // 计算一拍的时长（毫秒），根据当前的播放速度调整
+    const beatDuration = (60 / bpm) * 1000 / playbackRate;
+    const gridDuration = beatDuration / (beatType / 4);
+    
+    // 根据BPM推荐分割节拍
+    const recommendedBeatType = getRecommendedBeatType(bpm);
+    const recommendationText = recommendedBeatType !== beatType ? 
+      `<span style="color: #03dac6; cursor: pointer;" id="applyRecommendedBeat">推荐使用 ${recommendedBeatType}分音符 (点击应用)</span>` : 
+      `<span style="color: #03dac6;">当前节拍分割最佳</span>`;
+    
+    // 更新BPM信息显示
+    const bpmInfoElement = document.getElementById('bpmInfo') || document.createElement('div');
+    bpmInfoElement.id = 'bpmInfo';
+    bpmInfoElement.style.marginTop = '5px';
+    bpmInfoElement.style.fontSize = '12px';
+    bpmInfoElement.style.color = '#888';
+    
+    bpmInfoElement.innerHTML = `
+      <span>BPM: ${bpm} - 每拍 ${beatDuration.toFixed(0)}ms - 每格 ${gridDuration.toFixed(0)}ms (${playbackRate}x速度)</span>
+      <span style="margin-left:10px;">滚动速度: ${bpm < 100 ? '慢' : bpm < 150 ? '中' : '快'}</span><br>
+      ${recommendationText}
+    `;
+    
+    if (!document.getElementById('bpmInfo')) {
+      bpmInput.parentNode.appendChild(bpmInfoElement);
+    }
+    
+    // 添加点击事件处理程序
+    const applyRecommendedBtn = document.getElementById('applyRecommendedBeat');
+    if (applyRecommendedBtn) {
+      applyRecommendedBtn.onclick = function() {
+        beatInput.value = recommendedBeatType;
+        updateBpmInfo(); // 更新显示
+        debugLog(`应用推荐的节拍分割: ${recommendedBeatType}`);
+      };
+    }
+  }
+  
+  // 基于BPM推荐节拍分割
+  function getRecommendedBeatType(bpm) {
+    // 根据BPM范围推荐不同的节拍分割方式
+    if (bpm < 70) {
+      // 非常慢的歌曲，推荐更细的分割
+      return 32;
+    } else if (bpm < 90) {
+      // 慢歌，推荐16分音符
+      return 16;
+    } else if (bpm < 120) {
+      // 中速歌曲，推荐8分音符
+      return 8;
+    } else if (bpm < 160) {
+      // 较快歌曲，推荐4分音符
+      return 4;
+    } else {
+      // 非常快的歌曲，可以用4分音符
+      return 4;
+    }
+  }
+  
+  // BPM输入框变更事件
+  bpmInput.addEventListener('change', function() {
+    updateBpmInfo();
+  });
   
   // 生成格子
   generateGridBtn.addEventListener('click', function() {
@@ -318,6 +817,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     debugLog(`生成格子: BPM=${bpm}, 拍子=${beatType}, 总时长=${songDuration}秒, 格子数=${totalGrids}, 每格时长=${gridDuration}ms`);
     
+    // 更新BPM信息显示
+    updateBpmInfo();
+    
     // 为每条轨道生成格子
     tracks.forEach((track, trackIndex) => {
       for (let i = 0; i < totalGrids; i++) {
@@ -346,8 +848,15 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
     
-    // 更新时间线初始位置
-    editorTimeline.style.left = '0px';
+    // 初始化时间线位置 - 设置到中央
+    const trackContainer = tracks[0];
+    if (trackContainer) {
+      const containerWidth = trackContainer.clientWidth;
+      const centerPosition = containerWidth / 2;
+      editorTimeline.style.left = `${centerPosition}px`;
+    } else {
+      editorTimeline.style.left = '50%'; // 默认回退值
+    }
     
     // 确保轨道可以水平滚动
     tracks.forEach(track => {
@@ -359,6 +868,29 @@ document.addEventListener('DOMContentLoaded', function() {
       // 确保滚动条显示
       track.style.overflowX = 'auto';
     });
+    
+    // 启用键盘控制
+    keyboardEnabled = true;
+    
+    // 添加键盘控制提示
+    const keyboardTips = document.createElement('div');
+    keyboardTips.className = 'keyboard-tips';
+    keyboardTips.innerHTML = `
+      <div class="tips-header">键盘快捷键:</div>
+      <div class="tips-content">
+        <div><span class="key">Q</span> - 音轨1添加音符</div>
+        <div><span class="key">W</span> - 音轨2添加音符</div>
+        <div><span class="key">E</span> - 音轨3添加音符</div>
+        <div><span class="key">R</span> - 音轨4添加音符</div>
+        <div><span class="key">Shift+Q/W/E/R</span> - 删除对应轨道音符</div>
+      </div>
+    `;
+    
+    // 添加到编辑器区域
+    const editorSection = document.querySelector('.editor-section .panel-content');
+    if (editorSection && !document.querySelector('.keyboard-tips')) {
+      editorSection.appendChild(keyboardTips);
+    }
   });
   
   // 切换格子选择状态
@@ -499,347 +1031,367 @@ document.addEventListener('DOMContentLoaded', function() {
     const maxIndex = Math.max(currentNote.index, parseInt(adjacentGrid.dataset.index));
     
     if (maxIndex - minIndex > 1) {
-      // 需要处理中间的格子
-      const track = tracks[trackIndex];
-      const allGrids = Array.from(track.children);
+      const trackElement = tracks[trackIndex];
+      const allGrids = Array.from(trackElement.children);
       
+      // 找到中间的所有格子并标记为长音符的一部分
       allGrids.forEach(grid => {
         const gridIndex = parseInt(grid.dataset.index);
         if (gridIndex > minIndex && gridIndex < maxIndex) {
-          // 中间格子，添加长音符样式
-          grid.classList.add('active', 'long-note');
+          grid.classList.add('long-note');
           grid.dataset.noteId = longNoteId;
         }
       });
     }
     
-    debugLog(`自动合并了音符 ${currentNote.noteId} 和 ${adjacentNoteId} 为长音符 ${longNoteId}`);
-    
-    // 重置选中状态
-    selectedNotes = [];
+    // 更新选中的音符
+    selectedNotes = [
+      {
+        element: currentNote.element,
+        noteId: longNoteId,
+        trackIndex: trackIndex,
+        index: currentNote.index,
+        time: currentNote.time
+      }
+    ];
   }
   
-  // 计算当前格子持续时间
+  // 计算格子时长
   function calculateGridDuration() {
     const bpm = parseInt(bpmInput.value) || 120;
     const beatType = parseInt(beatInput.value) || 4;
-    const beatDuration = (60 / bpm) * 1000;
-    return beatDuration / (beatType / 4);
+    // 考虑当前播放速度对格子时长的影响
+    return (60 / bpm) * 1000 / (beatType / 4) / playbackRate;
   }
   
-  // 自动合并最近的两个音符
+  // 自动合并最后选择的音符
   function autoMergeLastNotes() {
     if (selectedNotes.length < 2) return;
     
-    // 获取最近两个音符
-    const notes = selectedNotes.slice(-2);
+    // 获取最后两个选中的音符
+    const lastNote = selectedNotes[selectedNotes.length - 1];
+    const prevNote = selectedNotes[selectedNotes.length - 2];
     
-    // 确保在同一轨道
-    if (notes[0].trackIndex !== notes[1].trackIndex) return;
+    // 检查是否在同一轨道
+    if (lastNote.trackIndex !== prevNote.trackIndex) return;
     
-    // 按时间排序
-    notes.sort((a, b) => a.time - b.time);
+    // 检查是否相邻或足够近
+    const gridDuration = calculateGridDuration();
+    const timeDiff = Math.abs(lastNote.time - prevNote.time);
     
-    // 创建长音符
-    const longNoteId = 'note' + (++notesCounter);
-    const longNoteData = {
-      time: notes[0].time,
-      type: '2', // 长音符
-      color: notes[0].trackIndex,
-      begin: notes[0].time,
-      end: notes[1].time + 100 // 结束时间为第二个音符时间+100ms
-    };
-    
-    // 从谱面中移除原有音符
-    notes.forEach(note => {
-      if (note.noteId) {
-        removeNoteFromScore(note.noteId);
-      }
-    });
-    
-    // 添加长音符到谱面
-    updateScoreWithNote(longNoteId, longNoteData);
-    
-    // 更新视觉效果
-    notes.forEach(note => {
-      if (note.element) {
-        note.element.classList.add('long-note');
-        note.element.dataset.noteId = longNoteId;
-      }
-    });
-    
-    // 清空并重置选中状态
-    selectedNotes = [];
-    
-    debugLog('自动合并了两个连续音符');
+    if (timeDiff <= gridDuration * 1.1) { // 允许10%的误差
+      // 在同一轨道上的相邻音符，可以合并
+      autoMergeWithAdjacent(
+        lastNote,
+        lastNote.trackIndex,
+        prevNote.element
+      );
+    }
   }
   
   // 从谱面中移除音符
   function removeNoteFromScore(noteId) {
-    if (scoreData && scoreData.track && scoreData.track[noteId]) {
+    if (scoreData && scoreData.track && noteId) {
       delete scoreData.track[noteId];
-      updateJsonPreview();
+      // 不再每次都更新JSON预览
     }
   }
   
-  // 更新谱面数据
+  // 更新谱面数据中的音符
   function updateScoreWithNote(noteId, noteData) {
-    if (!scoreData) return;
-    
-    if (!scoreData.track) {
-      scoreData.track = {};
+    if (scoreData && scoreData.track) {
+      scoreData.track[noteId] = noteData;
+      // 不再每次都更新JSON预览
     }
-    
-    scoreData.track[noteId] = noteData;
-    updateJsonPreview();
   }
   
-  // 更新JSON预览
-  function updateJsonPreview() {
-    if (!jsonContent) return;
-    jsonContent.textContent = JSON.stringify(scoreData, null, 2);
-  }
-  
-  // 合并音符
-  // mergeNotesBtn.addEventListener('click', function() {
-  //   if (selectedNotes.length < 2) {
-  //     alert('请至少选择两个音符进行合并');
-  //     return;
-  //   }
+  // 生成并更新JSON预览
+  function generateJsonPreview() {
+    if (!jsonContent || !scoreData) return;
     
-  //   // 确保选中的音符在同一轨道上
-  //   const trackIndex = selectedNotes[0].trackIndex;
-  //   const allSameTrack = selectedNotes.every(note => note.trackIndex === trackIndex);
-    
-  //   if (!allSameTrack) {
-  //     alert('只能合并同一轨道上的音符');
-  //     return;
-  //   }
-    
-  //   // 按照时间顺序排序
-  //   selectedNotes.sort((a, b) => a.time - b.time);
-    
-  //   // 确保选中的音符是连续的
-  //   let isConsecutive = true;
-  //   for (let i = 1; i < selectedNotes.length; i++) {
-  //     const prevIndex = parseInt(selectedNotes[i-1].index);
-  //   }
-  // });
-  
-  // 清空所有按钮
-  clearAllBtn.addEventListener('click', function() {
-    if (confirm('确定要清空所有音符吗？')) {
-      tracks.forEach(track => {
-        Array.from(track.children).forEach(grid => {
-          // 确保移除所有相关样式
-          grid.classList.remove('active', 'selected', 'long-note');
-          delete grid.dataset.noteId;
-        });
-      });
-      
-      // 清空谱面数据
-      if (scoreData) {
-        scoreData.track = {};
-        updateJsonPreview();
-      }
-      
-      // 重置状态
-      selectedNotes = [];
-      notesCounter = 0;
-      lastSelectedTrack = null;
-      lastSelectedTime = null;
-    }
-  });
+    try {
+      const notesArr = Object.values(scoreData.track || {})
+        .map(note => {
+          const duration = (note.end !== undefined && note.begin !== undefined)
+            ? (note.end - note.begin)
+            : 0;
+          return {
+            time: note.time,
+            type: note.type,
+            color: note.color,
+            duration: duration
+          };
+        })
+        .sort((a, b) => a.time - b.time);
 
-  // 保存谱面
-  saveBtn.addEventListener('click', function() {
+      const trackCount = notesArr.length;
+
+      const previewData = {
+        name: scoreData.name,
+        trackCount: trackCount,
+        iamgePath: scoreData.iamgePath,
+        musicPath: scoreData.musicPath,
+        difficulty: parseInt(difficultyInput.value) || 3,
+        BPM: parseInt(bpmInput.value) || 120,
+        offset: parseInt(offsetInput.value) || 0,
+        track: notesArr
+      };
+      
+      // 格式化JSON并显示
+      jsonContent.textContent = JSON.stringify(previewData, null, 2);
+      
+      // 显示成功消息
+      const jsonSection = document.getElementById('jsonPreview');
+      if (jsonSection) {
+        const notification = document.createElement('div');
+        notification.className = 'json-notification';
+        notification.textContent = '谱面JSON已成功生成！';
+        jsonSection.querySelector('.panel-content').appendChild(notification);
+        setTimeout(() => { notification.remove(); }, 3000);
+      }
+      return previewData;
+    } catch (e) {
+      debugLog('生成JSON预览出错:', e);
+      jsonContent.textContent = '生成JSON失败: ' + e.message;
+      return null;
+    }
+  }
+  
+  // 生成JSON按钮点击事件
+  generateJsonBtn.addEventListener('click', function() {
     if (!scoreData) {
-      alert('请先上传音乐并创建谱面');
+      alert('请先上传音乐文件并编辑谱面');
       return;
     }
-
-    // 显示保存中的提示
-    saveBtn.textContent = "保存中...";
-    saveBtn.disabled = true;
     
-    // 在保存前自动合并连续音符
-    autoMergeConsecutiveNotes();
+    // 在生成预览前，先执行全局的自动合并
+    autoMergeAllNotes();
     
-    debugLog('保存谱面:', scoreData.name);
-
+    // 生成JSON预览
+    const jsonData = generateJsonPreview();
+    
+    if (jsonData) {
+      debugLog('谱面JSON已生成:', jsonData);
+      
+      // 滚动到JSON预览区域
+      const jsonSection = document.getElementById('jsonPreview');
+      if (jsonSection) {
+        jsonSection.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  });
+  
+  // 保存按钮事件
+  saveBtn.addEventListener('click', function() {
+    if (!scoreData) {
+      alert('请先生成谱面');
+      return;
+    }
+    
+    // 先生成最新的JSON数据
+    const jsonData = generateJsonPreview();
+    if (!jsonData) {
+      alert('生成JSON数据失败，请重试');
+      return;
+    }
+    
+    // 使用fetch API发送保存请求
     fetch('/save', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(scoreData)
+      body: JSON.stringify(jsonData)
     })
     .then(response => {
-      debugLog('保存响应状态:', response.status);
       if (!response.ok) {
-        throw new Error(`HTTP错误! 状态: ${response.status}`);
+        throw new Error(`保存失败: ${response.status} ${response.statusText}`);
       }
       return response.json();
     })
     .then(data => {
-      debugLog('保存响应:', data);
       if (data.success) {
-        alert('谱面保存成功!');
-        downloadBtn.href = data.downloadUrl;
-        downloadBtn.download = data.filename;
-        downloadBtn.style.display = 'inline-block';
+        debugLog('保存成功:', data);
+        
+        // 更新下载按钮
+        if (data.downloadUrl) {
+          downloadBtn.disabled = false;
+          downloadBtn.style.display = 'inline-flex';
+          downloadBtn.onclick = function() {
+            window.location.href = data.downloadUrl;
+          };
+          
+          // 显示成功消息
+          alert(`谱面已成功保存为 ${data.filename}`);
+        }
       } else {
         throw new Error(data.error || '保存失败');
       }
-      saveBtn.textContent = "保存谱面";
-      saveBtn.disabled = false;
     })
     .catch(error => {
-      debugLog('保存错误:', error);
-      alert('保存失败: ' + error.message);
-      saveBtn.textContent = "保存谱面";
-      saveBtn.disabled = false;
+      debugLog('保存谱面失败:', error);
+      alert('保存谱面失败: ' + error.message);
     });
   });
-
-  // 自动合并连续的短音符为长音符
-  function autoMergeConsecutiveNotes() {
-    if (!scoreData || !scoreData.track) return;
+  
+  // 清空谱面按钮事件
+  clearAllBtn.addEventListener('click', function() {
+    if (!confirm('确定要清空所有音符?')) return;
     
-    debugLog('开始自动合并连续音符...');
-    
-    // 按轨道和时间排序所有音符
-    let notesByTrack = {};
-    
-    // 整理音符数据，按轨道分组
-    for (const [noteId, note] of Object.entries(scoreData.track)) {
-      const trackIndex = note.color;
-      
-      if (!notesByTrack[trackIndex]) {
-        notesByTrack[trackIndex] = [];
-      }
-      
-      notesByTrack[trackIndex].push({
-        id: noteId,
-        ...note
+    // 清空所有音轨
+    tracks.forEach(track => {
+      Array.from(track.children).forEach(grid => {
+        grid.classList.remove('active', 'selected', 'long-note');
+        delete grid.dataset.noteId;
       });
+    });
+    
+    // 重置谱面数据
+    if (scoreData) {
+      scoreData.track = {};
+      // 不再自动更新JSON预览
+      jsonContent.textContent = "点击「生成谱面JSON」按钮来生成谱面数据";
     }
     
-    // 处理每条轨道
-    for (const [trackIndex, notes] of Object.entries(notesByTrack)) {
-      // 按时间排序
-      notes.sort((a, b) => a.time - b.time);
-      
-      // 寻找可以合并的连续短音符组
-      let currentGroup = [];
-      let mergedNotes = {};
-      
-      for (let i = 0; i < notes.length; i++) {
-        const currentNote = notes[i];
-        
-        // 只处理短音符(type='1')
-        if (currentNote.type !== '1') {
-          // 处理前一组
-          if (currentGroup.length >= 2) {
-            mergeSingleGroup(currentGroup, mergedNotes);
-          }
-          currentGroup = [];
-          continue;
-        }
-        
-        // 初始化或续接当前组
-        if (currentGroup.length === 0) {
+    // 重置状态
+    selectedNotes = [];
+    notesCounter = 0;
+    lastSelectedTrack = null;
+    lastSelectedTime = null;
+  });
+  
+  // 自动合并所有轨道中的连续音符，并更新UI
+  function autoMergeAllNotes() {
+    if (!scoreData || !scoreData.track) return;
+
+    const bpm = parseInt(bpmInput.value) || 120;
+    const beatType = parseInt(beatInput.value) || 4;
+    const gridDuration = (60 / bpm) * 1000 / (beatType / 4);
+
+    const notesByTrack = {};
+    // 1. 按轨道颜色分组所有音符
+    Object.values(scoreData.track).forEach(note => {
+      const color = note.color;
+      if (!notesByTrack[color]) {
+        notesByTrack[color] = [];
+      }
+      notesByTrack[color].push(JSON.parse(JSON.stringify(note)));
+    });
+
+    const finalTrackObject = {};
+    let newNoteIdCounter = 0;
+
+    // 2. 独立处理每个轨道的音符
+    for (const trackIndex in notesByTrack) {
+      let trackNotes = notesByTrack[trackIndex];
+      trackNotes.sort((a, b) => a.time - b.time); // 按时间排序
+
+      if (trackNotes.length === 0) continue;
+
+      let mergedNotesForTrack = [];
+      let currentGroup = [trackNotes[0]];
+
+      for (let i = 1; i < trackNotes.length; i++) {
+        const prevNoteInGroup = currentGroup[currentGroup.length - 1];
+        const currentNote = trackNotes[i];
+
+        // 检查音符是否连续 (允许20%的误差)
+        const expectedTime = prevNoteInGroup.time + gridDuration;
+        if (Math.abs(currentNote.time - expectedTime) < gridDuration * 0.2) {
           currentGroup.push(currentNote);
         } else {
-          const prevNote = currentGroup[currentGroup.length - 1];
-          
-          // 获取当前格子持续时间以作为参考
-          const gridDuration = calculateGridDuration();
-          const actualGap = currentNote.time - prevNote.time;
-          
-          // 检查时间是否连续（基于当前节拍设置）
-          if (actualGap <= gridDuration * 1.2) {
-            // 连续音符，加入当前组
-            currentGroup.push(currentNote);
+          // 当前组结束，处理之
+          if (currentGroup.length > 1) {
+            const firstNote = currentGroup[0];
+            const lastNote = currentGroup[currentGroup.length - 1];
+            mergedNotesForTrack.push({
+              time: firstNote.time,
+              type: '2', // 长音符
+              color: parseInt(trackIndex),
+              begin: firstNote.time,
+              end: lastNote.time + gridDuration // 结束于最后一个音符所在格子的末尾
+            });
           } else {
-            // 不连续，处理前一组并开始新组
-            if (currentGroup.length >= 2) {
-              mergeSingleGroup(currentGroup, mergedNotes);
-            }
-            currentGroup = [currentNote];
+            mergedNotesForTrack.push(currentGroup[0]); // 单个音符
           }
+          currentGroup = [currentNote]; // 开始新组
         }
       }
-      
+
       // 处理最后一组
-      if (currentGroup.length >= 2) {
-        mergeSingleGroup(currentGroup, mergedNotes);
+      if (currentGroup.length > 1) {
+        const firstNote = currentGroup[0];
+        const lastNote = currentGroup[currentGroup.length - 1];
+        mergedNotesForTrack.push({
+          time: firstNote.time,
+          type: '2',
+          color: parseInt(trackIndex),
+          begin: firstNote.time,
+          end: lastNote.time + gridDuration
+        });
+      } else if (currentGroup.length > 0) {
+        mergedNotesForTrack.push(currentGroup[0]);
       }
+
+      // 将处理完的音符添加到最终的谱面对象中
+      mergedNotesForTrack.forEach(note => {
+        finalTrackObject['note' + (++newNoteIdCounter)] = note;
+      });
     }
-    
-    // 更新JSON预览
-    updateJsonPreview();
-    
-    debugLog('自动合并完成');
+
+    // 3. 使用合并后的新数据更新全局谱面
+    scoreData.track = finalTrackObject;
+    notesCounter = newNoteIdCounter;
+
+    // 4. 根据新的谱面数据，刷新整个编辑器的UI
+    updateEditorUIAfterMerge();
   }
-  
-  // 合并单个音符组
-  function mergeSingleGroup(group, mergedNotes) {
-    if (group.length < 2) return;
-    
-    // 获取开始和结束音符
-    const firstNote = group[0];
-    const lastNote = group[group.length - 1];
-    
-    // 创建长音符
-    const longNoteId = 'note' + (++notesCounter);
-    const longNoteData = {
-      time: firstNote.time,
-      type: '2', // 长音符
-      color: firstNote.color,
-      begin: firstNote.time,
-      end: lastNote.time + (lastNote.end - lastNote.time) // 使用最后一个音符的持续时间
-    };
-    
-    // 从谱面中移除所有组内短音符
-    group.forEach(note => {
-      delete scoreData.track[note.id];
+
+  function updateEditorUIAfterMerge() {
+    // 首先，清除所有轨道上所有格子的激活状态和样式
+    tracks.forEach(track => {
+      Array.from(track.children).forEach(grid => {
+        grid.classList.remove('active', 'selected', 'long-note');
+        delete grid.dataset.noteId;
+      });
     });
-    
-    // 添加新的长音符到谱面
-    scoreData.track[longNoteId] = longNoteData;
-    
-    // 在UI中也反映这个变化 (如果有视觉元素的话)
-    updateGridsForMergedNotes(group, longNoteId);
-    
-    debugLog(`合并了 ${group.length} 个音符为长音符 ${longNoteId}`);
-  }
-  
-  // 更新网格显示合并后的长音符
-  function updateGridsForMergedNotes(group, longNoteId) {
-    // 获取音符所在的轨道索引
-    const trackIndex = group[0].color;
-    const track = tracks[trackIndex];
-    if (!track) return;
-    
-    // 查找对应的网格元素
-    group.forEach(note => {
-      // 查找匹配此音符时间的格子
-      const grids = Array.from(track.children);
-      const matchingGrid = grids.find(grid => 
-        parseInt(grid.dataset.time) === note.time
-      );
+
+    // 然后，根据合并后的scoreData重新应用样式
+    Object.entries(scoreData.track).forEach(([noteId, noteData]) => {
+      const trackElement = tracks[noteData.color];
+      if (!trackElement) return;
+
+      const allGrids = Array.from(trackElement.children);
       
-      if (matchingGrid) {
-        // 更新视觉效果
-        matchingGrid.classList.add('active', 'long-note');
-        matchingGrid.dataset.noteId = longNoteId;
+      // 为长音符应用样式
+      if (noteData.type === '2') {
+        allGrids.forEach(grid => {
+          const gridTime = parseInt(grid.dataset.time);
+          // 检查格子时间是否在长音符的起止时间内
+          if (gridTime >= noteData.begin && gridTime < noteData.end) {
+            grid.classList.add('active', 'long-note');
+            grid.dataset.noteId = noteId;
+          }
+        });
+      } else { // 为短音符应用样式
+        const targetGrid = allGrids.find(g => parseInt(g.dataset.time) === noteData.time);
+        if (targetGrid) {
+          targetGrid.classList.add('active');
+          targetGrid.dataset.noteId = noteId;
+        }
       }
     });
   }
 
-  // 初始化WaveSurfer和AudioContext
-  initWaveSurfer();
-  initAudioContext();
-  debugLog('页面初始化完成');
+  // 初始化页面 - 移除实时更新JSON的监听器
+  // bpmInput.addEventListener('input', updateJsonPreview);
+  // offsetInput.addEventListener('input', updateJsonPreview);
+  // difficultyInput.addEventListener('input', updateJsonPreview);
+  
+  // 初始状态设置
+  playBtn.disabled = true;
+  pauseBtn.disabled = true;
+  saveBtn.disabled = true;
+  downloadBtn.disabled = true;
+  downloadBtn.style.display = 'none'; // 初始隐藏下载按钮
 }); 
